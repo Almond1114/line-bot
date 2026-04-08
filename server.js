@@ -15,13 +15,10 @@ const client = new line.messagingApi.MessagingApiClient({
 });
 
 const PORT = process.env.PORT || 3000;
+const IMAGE_URL = 'https://i.imgur.com/eCkndVy.png';
 
-// ここに画像URLを直接埋め込み
-const IMAGE_URL = "https://i.imgur.com/eCkndVy.png";
-
-const WELCOME_TEXT = `2年3組のみんなへ
-
-新しくグループラインを作りました。
+// 「2年3組のみんなへ」は削除済み
+const WELCOME_TEXT = `新しくグループラインを作りました。
 ここでは主に
 ・教科の連絡
 ・持ち物の確認
@@ -38,39 +35,105 @@ const WELCOME_TEXT = `2年3組のみんなへ
 楽しくやっていきましょう！
 よろしくお願いします！`;
 
+const HELP_TEXT = `使えるコマンド
+/help 使い方を見る
+/rule ルールをもう一度見る
+/welcome 案内をもう一度送る`;
+
 app.get('/', (_req, res) => {
-  res.send('2-3 Hub bot is running!');
+  res.status(200).send('2-3 Hub bot is running!');
 });
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
     const events = req.body.events || [];
-
-    await Promise.all(events.map(async (event) => {
-      if (event.type === 'memberJoined') {
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [
-            {
-              type: 'image',
-              originalContentUrl: IMAGE_URL,
-              previewImageUrl: IMAGE_URL,
-            },
-            {
-              type: 'text',
-              text: WELCOME_TEXT,
-            }
-          ]
-        });
-      }
-    }));
-
+    await Promise.all(events.map(handleEvent));
     res.sendStatus(200);
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error('Webhook error:', error);
     res.sendStatus(500);
   }
 });
+
+async function handleEvent(event) {
+  if (!event) return;
+
+  if (event.type === 'memberJoined') {
+    const userId = event.joined.members[0].userId;
+    await replyWelcome(event.replyToken, userId);
+    return;
+  }
+
+  if (event.type === 'join') {
+    await replyText(
+      event.replyToken,
+      'こんにちは、2-3 Hubです。新しく参加した人が入ると、案内を自動で送ります。/rule で案内をもう一度表示できます。'
+    );
+    return;
+  }
+
+  if (event.type === 'message' && event.message.type === 'text') {
+    const text = event.message.text.trim();
+
+    if (text === '/help') {
+      await replyText(event.replyToken, HELP_TEXT);
+      return;
+    }
+
+    if (text === '/rule' || text === '/welcome') {
+      await replyWelcome(event.replyToken);
+      return;
+    }
+  }
+}
+
+async function replyWelcome(replyToken, userId) {
+  if (!replyToken) return;
+
+  let userName = '新しいメンバー';
+
+  try {
+    if (userId) {
+      const profile = await client.getProfile(userId);
+      userName = profile.displayName;
+    }
+  } catch (e) {
+    console.log('名前取得失敗:', e.message);
+  }
+
+  const text = `${userName}さん、ようこそ！
+
+${WELCOME_TEXT}`;
+
+  await client.replyMessage({
+    replyToken,
+    messages: [
+      {
+        type: 'image',
+        originalContentUrl: IMAGE_URL,
+        previewImageUrl: IMAGE_URL,
+      },
+      {
+        type: 'text',
+        text: text,
+      },
+    ],
+  });
+}
+
+async function replyText(replyToken, text) {
+  if (!replyToken) return;
+
+  await client.replyMessage({
+    replyToken,
+    messages: [
+      {
+        type: 'text',
+        text,
+      },
+    ],
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
